@@ -6,12 +6,57 @@ import random
 import sys
 import json
 import threading
+import platform
+from functools import lru_cache
 
-ctypes.windll.user32.SetProcessDPIAware()
+IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    ctypes.windll.user32.SetProcessDPIAware()
 pygame.init()
 
 # ---------- SAVE ----------
 SAVE_FILE = "save.json"
+TARGET_FPS = 60
+FRAME_MS = 1000 / TARGET_FPS
+DEFAULT_WIDTH = 1280
+DEFAULT_HEIGHT = 720
+MIN_WIDTH = 640
+MIN_HEIGHT = 480
+GROUND_OFFSET = 50
+PLAYER_SIZE = 50
+MAGMA_SIZE = 30
+COIN_SIZE = 20
+DASH_SPEED = 19
+MAGMA_BASE_SPEED = 6.2
+MAGMA_MAX_SPEED = 13
+MAGMA_SCORE_SCALE = 0.06
+COIN_FALL_SPEED = 5
+SHOP_ITEMS = [
+    {
+        "key": pygame.K_1,
+        "label": "1",
+        "title": "SPEED +1",
+        "cost": 20,
+        "color": (100, 200, 255),
+        "desc": "Faster movement",
+    },
+    {
+        "key": pygame.K_2,
+        "label": "2",
+        "title": "JUMP -2",
+        "cost": 30,
+        "color": (80, 255, 120),
+        "desc": "Stronger jump",
+    },
+    {
+        "key": pygame.K_3,
+        "label": "3",
+        "title": "SHIELD UPGRADE",
+        "cost": 100,
+        "color": (255, 220, 70),
+        "desc": "Longer shield",
+    },
+]
 
 coins = 0
 player_speed = 8
@@ -21,9 +66,8 @@ shield_time_real = 120
 save_dirty = False
 last_save_tick = 0
 AUTO_SAVE_INTERVAL = 5000
-glow_surface_cache = {}
 magma_glow_surface = None
-trail_surface_cache = {}
+save_lock = threading.Lock()
 
 
 def save_game():
@@ -35,10 +79,13 @@ def save_game():
         "shield_cooldown_real": shield_cooldown_real,
         "shield_time_real": shield_time_real,
     }
-    with open(SAVE_FILE, "w") as f:
-        json.dump(data, f)
-        f.flush()
-        os.fsync(f.fileno())
+    temp_file = f"{SAVE_FILE}.tmp"
+    with save_lock:
+        with open(temp_file, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_file, SAVE_FILE)
     save_dirty = False
     last_save_tick = pygame.time.get_ticks()
 
@@ -65,82 +112,27 @@ def load_game():
         save_game()
 
 
-# ---------- THREAD INPUT ----------
-command = ""
-command_lock = threading.Lock()
-
-
-def read_input():
-    global command
-    while True:
-        try:
-            cmd = input(">> ")
-            with command_lock:
-                command = cmd
-        except Exception:
-            break
-
-
 def get_safe_window_resolution():
-    default_width = 1280
-    default_height = 720
     display_info = pygame.display.Info()
-    max_width = max(640, display_info.current_w - 120)
-    max_height = max(480, display_info.current_h - 120)
-
+    max_width = max(MIN_WIDTH, display_info.current_w - 120)
+    max_height = max(MIN_HEIGHT, display_info.current_h - 120)
     try:
         raw = input("Resolution: ").split()
         width, height = map(int, raw[:2])
     except Exception:
-        width, height = default_width, default_height
+        width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
 
     if width <= 0 or height <= 0:
-        width, height = default_width, default_height
+        width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
 
-    width = max(640, min(max_width, width))
-    height = max(480, min(max_height, height))
+    width = max(MIN_WIDTH, min(max_width, width))
+    height = max(MIN_HEIGHT, min(max_height, height))
     return width, height
 
 
 # ---------- SCREEN ----------
-mode = int(input("1 fullscreen | 0 window: "))
+WIDTH, HEIGHT = DEFAULT_WIDTH, DEFAULT_HEIGHT
 
-if mode == 1:
-    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-    WIDTH, HEIGHT = screen.get_size()
-else:
-    WIDTH, HEIGHT = get_safe_window_resolution()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-
-pygame.display.set_caption("DODGE THE MAGMA")
-# get window handle
-hwnd = pygame.display.get_wm_info()['window']
-
-# 1. tạm thời set topmost
-SWP_NOSIZE = 0x0001
-SWP_NOMOVE = 0x0002
-HWND_TOPMOST = -1
-HWND_NOTOPMOST = -2
-ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-
-# 2. set foreground
-ctypes.windll.user32.SetForegroundWindow(hwnd)
-
-# 3. remove topmost để normal lại
-ctypes.windll.user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-
-clock = pygame.time.Clock()
-
-threading.Thread(target=read_input, daemon=True).start()
-
-# ---------- FONT ----------
-font = pygame.font.SysFont("Consolas", 28)
-small_font = pygame.font.SysFont("Consolas", 22)
-big_font = pygame.font.SysFont("Consolas", 48)
-
-load_game()
-
-# ---------- COLORS ----------
 WHITE = (255, 255, 255)
 RED = (255, 80, 70)
 ORANGE = (255, 160, 60)
@@ -151,7 +143,41 @@ PURPLE = (160, 130, 255)
 BG = (10, 10, 20)
 GRID = (30, 30, 60)
 PANEL = (0, 0, 0)
+CONSOLE_BG = (0, 0, 0, 210)
+CONSOLE_TEXT = (200, 200, 220)
+CONSOLE_CMD = (100, 200, 255)
+CONSOLE_OK = (80, 255, 120)
+CONSOLE_ERR = (255, 80, 70)
+CONSOLE_INFO = (140, 140, 180)
+CONSOLE_MAX_LINES = 8
 
+clock = pygame.time.Clock()
+font = pygame.font.SysFont("Consolas", 28)
+small_font = pygame.font.SysFont("Consolas", 22)
+big_font = pygame.font.SysFont("Consolas", 48)
+
+mode = int(input("1 fullscreen | 0 window: "))
+if mode == 1:
+    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    WIDTH, HEIGHT = screen.get_size()
+else:
+    WIDTH, HEIGHT = get_safe_window_resolution()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+pygame.display.set_caption("DODGE THE MAGMA")
+if IS_WINDOWS:
+    window_info = pygame.display.get_wm_info()
+    hwnd = window_info.get("window")
+    if hwnd:
+        SWP_NOSIZE = 0x0001
+        SWP_NOMOVE = 0x0002
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        ctypes.windll.user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+
+load_game()
 
 # ---------- HELPERS ----------
 def clamp(value, minimum, maximum):
@@ -186,21 +212,19 @@ def draw_bar(x, y, w, h, ratio, fill_color, label, border_color=WHITE):
     screen.blit(label_surf, (x + 8, y + h // 2 - label_surf.get_height() // 2))
 
 
+@lru_cache(maxsize=64)
 def get_glow_surface(radius, color, alpha):
-    key = (radius, color, alpha)
-    if key not in glow_surface_cache:
-        surface = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
-        pygame.draw.circle(
-            surface, (*color, alpha), (radius * 2, radius * 2), radius
-        )
-        pygame.draw.circle(
-            surface,
-            (*color, alpha // 2),
-            (radius * 2, radius * 2),
-            int(radius * 1.5),
-        )
-        glow_surface_cache[key] = surface
-    return glow_surface_cache[key]
+    surface = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
+    pygame.draw.circle(
+        surface, (*color, alpha), (radius * 2, radius * 2), radius
+    )
+    pygame.draw.circle(
+        surface,
+        (*color, alpha // 2),
+        (radius * 2, radius * 2),
+        int(radius * 1.5),
+    )
+    return surface
 
 
 def get_magma_glow_surface():
@@ -212,18 +236,16 @@ def get_magma_glow_surface():
     return magma_glow_surface
 
 
+@lru_cache(maxsize=96)
 def get_trail_surface(size, alpha):
-    key = (size[0], size[1], alpha)
-    if key not in trail_surface_cache:
-        surface = pygame.Surface((size[0] + 30, size[1] + 30), pygame.SRCALPHA)
-        pygame.draw.rect(
-            surface,
-            (120, 210, 255, alpha),
-            (15, 15, size[0], size[1]),
-            border_radius=12,
-        )
-        trail_surface_cache[key] = surface
-    return trail_surface_cache[key]
+    surface = pygame.Surface((size[0] + 30, size[1] + 30), pygame.SRCALPHA)
+    pygame.draw.rect(
+        surface,
+        (120, 210, 255, alpha),
+        (15, 15, size[0], size[1]),
+        border_radius=12,
+    )
+    return surface
 
 
 def draw_glow_circle(center, radius, color, alpha=70):
@@ -243,7 +265,7 @@ def reset_run():
     game_state = "game"
     gameover_input_unlock_at = 0
     player.x = WIDTH // 2
-    player.bottom = HEIGHT - 50
+    player.bottom = HEIGHT - GROUND_OFFSET
     player_pos_x = float(player.x)
     player_pos_y = float(player.y)
     velocity_y = 0.0
@@ -281,21 +303,21 @@ def spawn_magma_pattern():
         pieces.append(pygame.Rect(spawn_x, -30, 30, 30))
     elif pattern == "double":
         offset = random.choice([40, 55])
-        pieces.append(pygame.Rect(clamp(spawn_x, 0, WIDTH - 30), -30, 30, 30))
+        pieces.append(pygame.Rect(clamp(spawn_x, 0, WIDTH - MAGMA_SIZE), -MAGMA_SIZE, MAGMA_SIZE, MAGMA_SIZE))
         pieces.append(
-            pygame.Rect(clamp(spawn_x + offset, 0, WIDTH - 30), -30, 30, 30)
+            pygame.Rect(clamp(spawn_x + offset, 0, WIDTH - MAGMA_SIZE), -MAGMA_SIZE, MAGMA_SIZE, MAGMA_SIZE)
         )
     elif pattern == "cluster":
         offsets = [-44, -12, 20, 52]
         for off in random.sample(offsets, k=random.randint(3, 4)):
             pieces.append(
-                pygame.Rect(clamp(spawn_x + off, 0, WIDTH - 30), -30, 30, 30)
+                pygame.Rect(clamp(spawn_x + off, 0, WIDTH - MAGMA_SIZE), -MAGMA_SIZE, MAGMA_SIZE, MAGMA_SIZE)
             )
     else:
         lane = random.randint(0, 3)
         for i in range(4):
-            x = clamp(spawn_x + (i - lane) * 34, 0, WIDTH - 30)
-            pieces.append(pygame.Rect(x, -30 - i * 10, 30, 30))
+            x = clamp(spawn_x + (i - lane) * 34, 0, WIDTH - MAGMA_SIZE)
+            pieces.append(pygame.Rect(x, -MAGMA_SIZE - i * 10, MAGMA_SIZE, MAGMA_SIZE))
 
     magma_list.extend(pieces)
 
@@ -311,21 +333,21 @@ def spawn_coin_pattern():
     coins_to_add = []
 
     if pattern == "single":
-        coins_to_add.append(pygame.Rect(base_x, base_y, 20, 20))
+        coins_to_add.append(pygame.Rect(base_x, base_y, COIN_SIZE, COIN_SIZE))
     elif pattern == "zigzag":
         for i in range(5):
-            x = clamp(base_x + (-1) ** i * (18 + i * 2), 0, WIDTH - 20)
+            x = clamp(base_x + (-1) ** i * (18 + i * 2), 0, WIDTH - COIN_SIZE)
             y = base_y - i * 22
-            coins_to_add.append(pygame.Rect(x, y, 20, 20))
+            coins_to_add.append(pygame.Rect(x, y, COIN_SIZE, COIN_SIZE))
     elif pattern == "line":
         for i in range(4):
-            x = clamp(base_x + i * 26, 0, WIDTH - 20)
-            coins_to_add.append(pygame.Rect(x, base_y - i * 8, 20, 20))
+            x = clamp(base_x + i * 26, 0, WIDTH - COIN_SIZE)
+            coins_to_add.append(pygame.Rect(x, base_y - i * 8, COIN_SIZE, COIN_SIZE))
     else:
         for i in range(3):
-            x = clamp(base_x + i * 34 - 34, 0, WIDTH - 20)
+            x = clamp(base_x + i * 34 - 34, 0, WIDTH - COIN_SIZE)
             y = base_y - abs(i - 1) * 18
-            coins_to_add.append(pygame.Rect(x, y, 20, 20))
+            coins_to_add.append(pygame.Rect(x, y, COIN_SIZE, COIN_SIZE))
 
     coin_list.extend(coins_to_add)
 
@@ -387,7 +409,7 @@ def draw_coin(c, tick):
 
 
 # ---------- PLAYER ----------
-player = pygame.Rect(WIDTH // 2, HEIGHT - 100, 50, 50)
+player = pygame.Rect(WIDTH // 2, HEIGHT - 100, PLAYER_SIZE, PLAYER_SIZE)
 player_pos_x = float(player.x)
 player_pos_y = float(player.y)
 velocity_y = 0.0
@@ -431,6 +453,74 @@ next_coin_spawn = pygame.time.get_ticks() + 900
 score = 0
 game_state = "menu"
 gameover_input_unlock_at = 0
+console_open = False
+console_input = ""
+console_log = []
+
+
+def update_timer(value, amount):
+    return max(0.0, value - amount)
+
+
+def console_exec(cmd):
+    global coins, player_speed, shield, shield_time
+    cmd = cmd.strip().lower()
+    if cmd == "money":
+        coins += 100
+        queue_save()
+        return ("+100 coins", CONSOLE_OK)
+    if cmd == "god":
+        shield = True
+        shield_time = 999999
+        return ("god mode ON", CONSOLE_OK)
+    if cmd == "speed":
+        player_speed += 2
+        queue_save()
+        return (f"speed -> {player_speed}", CONSOLE_OK)
+    if cmd == "reset":
+        coins = 0
+        player_speed = 8
+        queue_save()
+        return ("reset done", CONSOLE_OK)
+    if cmd == "help":
+        return (" reset | exit | save | help", CONSOLE_INFO)
+    if cmd == "exit":
+        save_game()
+        pygame.quit()
+        sys.exit()
+    if cmd == "save":
+        save_game()
+        return ("successfully save game to save.json", CONSOLE_OK)
+    if cmd == "":
+        return None
+    return (f"unknown: {cmd}", CONSOLE_ERR)
+
+
+def draw_console():
+    h = 180
+    y0 = HEIGHT - h
+    overlay = pygame.Surface((WIDTH, h), pygame.SRCALPHA)
+    overlay.fill(CONSOLE_BG)
+    screen.blit(overlay, (0, y0))
+    pygame.draw.line(screen, (60, 60, 120), (0, y0), (WIDTH, y0), 1)
+
+    header = small_font.render("CHEAT CONSOLE  [ ESC close ]", True, CONSOLE_INFO)
+    screen.blit(header, (14, y0 + 8))
+
+    line_h = 22
+    start_y = y0 + 32
+    for i, (text, color) in enumerate(console_log[-CONSOLE_MAX_LINES:]):
+        line_surface = small_font.render(text, True, color)
+        screen.blit(line_surface, (14, start_y + i * line_h))
+
+    input_y = HEIGHT - 30
+    pygame.draw.line(screen, (60, 60, 120), (0, input_y - 4), (WIDTH, input_y - 4), 1)
+    prompt = small_font.render("$ " + console_input, True, CONSOLE_CMD)
+    screen.blit(prompt, (14, input_y))
+
+    if (pygame.time.get_ticks() // 500) % 2 == 0:
+        cursor_x = 14 + prompt.get_width() + 2
+        pygame.draw.rect(screen, CONSOLE_CMD, (cursor_x, input_y + 2, 2, 18))
 
 
 # ---------- UI ----------
@@ -500,54 +590,41 @@ def draw_shop():
     draw_box(WIDTH // 2 - 330, 140, 660, 430, (0, 0, 0), WHITE)
 
     mouse = pygame.mouse.get_pos()
-    items = [
-        {
-            "rect": pygame.Rect(WIDTH // 2 - 250, 220, 500, 70),
-            "key": "1",
-            "title": "SPEED +1",
-            "cost": 20,
-            "color": BLUE,
-            "desc": "Faster movement",
-        },
-        {
-            "rect": pygame.Rect(WIDTH // 2 - 250, 305, 500, 70),
-            "key": "2",
-            "title": "JUMP -2",
-            "cost": 30,
-            "color": GREEN,
-            "desc": "Stronger jump",
-        },
-        {
-            "rect": pygame.Rect(WIDTH // 2 - 250, 390, 500, 70),
-            "key": "3",
-            "title": "SHIELD UPGRADE",
-            "cost": 100,
-            "color": YELLOW,
-            "desc": "Longer shield",
-        },
+    item_rects = [
+        pygame.Rect(WIDTH // 2 - 250, 220, 500, 70),
+        pygame.Rect(WIDTH // 2 - 250, 305, 500, 70),
+        pygame.Rect(WIDTH // 2 - 250, 390, 500, 70),
     ]
 
     draw_text("=== SHOP ===", 180, YELLOW)
 
-    for item in items:
-        hovered = item["rect"].collidepoint(mouse)
+    for item, item_rect in zip(SHOP_ITEMS, item_rects):
+        hovered = item_rect.collidepoint(mouse)
         fill = (28, 28, 40) if not hovered else (50, 50, 72)
         border = item["color"] if hovered else WHITE
-        pygame.draw.rect(screen, fill, item["rect"], border_radius=12)
-        pygame.draw.rect(screen, border, item["rect"], 2, border_radius=12)
+        pygame.draw.rect(screen, fill, item_rect, border_radius=12)
+        pygame.draw.rect(screen, border, item_rect, 2, border_radius=12)
 
-        icon = small_font.render(f"[{item['key']}]", True, item["color"])
+        icon = small_font.render(f"[{item['label']}]", True, item["color"])
         title = font.render(item["title"], True, WHITE)
         cost = small_font.render(f"{item['cost']} coins", True, YELLOW)
         desc = small_font.render(item["desc"], True, (180, 180, 190))
 
-        screen.blit(icon, (item["rect"].x + 18, item["rect"].y + 16))
-        screen.blit(title, (item["rect"].x + 78, item["rect"].y + 12))
-        screen.blit(desc, (item["rect"].x + 78, item["rect"].y + 38))
-        screen.blit(cost, (item["rect"].right - cost.get_width() - 18, item["rect"].y + 23))
+        screen.blit(icon, (item_rect.x + 18, item_rect.y + 16))
+        screen.blit(title, (item_rect.x + 78, item_rect.y + 12))
+        screen.blit(desc, (item_rect.x + 78, item_rect.y + 38))
+        screen.blit(cost, (item_rect.right - cost.get_width() - 18, item_rect.y + 23))
 
     draw_text("[ ESC ] BACK", 490, WHITE)
     draw_text(f"COINS: {coins}", 528, YELLOW)
+
+
+def draw_pause():
+    draw_box(WIDTH // 2 - 250, 180, 500, 260, (0, 0, 0), BLUE)
+    draw_text("PAUSED", 225, BLUE, big_font)
+    draw_text("[ ESC ] RESUME", 310, WHITE)
+    draw_text("[ M ] MENU", 352, GREEN)
+    draw_text("[ Q ] SAVE & QUIT", 394, RED)
 
 
 def draw_gameover():
@@ -579,7 +656,7 @@ def draw_gameover():
 
 # ---------- LOOP ----------
 while True:
-    clock.tick(60)
+    dt = clock.tick(TARGET_FPS) / FRAME_MS
     tick = pygame.time.get_ticks()
 
     # background grid
@@ -588,38 +665,6 @@ while True:
         pygame.draw.line(screen, GRID, (x, 0), (x, HEIGHT))
     for y in range(0, HEIGHT, 40):
         pygame.draw.line(screen, GRID, (0, y), (WIDTH, y))
-
-    # ---------- COMMAND SYSTEM ----------
-    with command_lock:
-        cmd = command
-        command = ""
-
-    if cmd:
-        cmd = cmd.lower().strip()
-
-        if cmd == "exit":
-            save_game()
-            pygame.quit()
-            sys.exit()
-        elif cmd == "money":
-            coins += 100
-            queue_save()
-            print("+100 coins")
-        elif cmd == "god":
-            shield = True
-            shield_time = 999999
-            print("GOD MODE")
-        elif cmd == "speed":
-            player_speed += 5
-            queue_save()
-            print("Speed boosted")
-        elif cmd == "reset":
-            coins = 0
-            player_speed = 8
-            queue_save()
-            print("Reset done")
-        else:
-            print("Unknown:", cmd)
 
     if save_dirty and tick - last_save_tick >= AUTO_SAVE_INTERVAL:
         save_game()
@@ -632,6 +677,27 @@ while True:
             sys.exit()
 
         if e.type == pygame.KEYDOWN:
+            if e.key == pygame.K_BACKQUOTE:
+                console_open = not console_open
+                console_input = ""
+                continue
+
+            if console_open:
+                if e.key == pygame.K_ESCAPE:
+                    console_open = False
+                    console_input = ""
+                elif e.key == pygame.K_RETURN:
+                    result = console_exec(console_input)
+                    if result:
+                        console_log.append((f"$ {console_input}", CONSOLE_CMD))
+                        console_log.append(result)
+                    console_input = ""
+                elif e.key == pygame.K_BACKSPACE:
+                    console_input = console_input[:-1]
+                elif e.unicode and e.unicode.isprintable():
+                    console_input += e.unicode
+                continue
+
             if game_state == "menu":
                 if e.key == pygame.K_SPACE:
                     reset_run()
@@ -658,6 +724,16 @@ while True:
                 if e.key == pygame.K_ESCAPE:
                     game_state = "menu"
 
+            elif game_state == "pause":
+                if e.key == pygame.K_ESCAPE:
+                    game_state = "game"
+                if e.key == pygame.K_m:
+                    game_state = "menu"
+                if e.key == pygame.K_q:
+                    save_game()
+                    pygame.quit()
+                    sys.exit()
+
             elif game_state == "gameover":
                 if tick >= gameover_input_unlock_at:
                     if e.key == pygame.K_SPACE:
@@ -674,22 +750,26 @@ while True:
                 if e.key == pygame.K_SPACE:
                     jump_buffer_time = jump_buffer_max
                 if e.key == pygame.K_q and dash_cooldown <= 0:
-                    dash_velocity = 19 * facing
+                    dash_velocity = DASH_SPEED * facing
                     dash_duration = 12
                     dash_cooldown = 60
                 if e.key == pygame.K_e and shield_cooldown <= 0:
                     shield = True
                     shield_time = shield_time_real
                     shield_cooldown = shield_cooldown_real
+                if e.key == pygame.K_ESCAPE:
+                    game_state = "pause"
 
         if e.type == pygame.KEYUP and game_state == "game":
+            if console_open:
+                continue
             if e.key == pygame.K_SPACE:
                 jump_hold_time = 0
 
     # ---------- GAME ----------
-    if game_state == "game":
+    if game_state == "game" and not console_open:
         keys = pygame.key.get_pressed()
-        on_ground = player.bottom >= HEIGHT - 50
+        on_ground = player.bottom >= HEIGHT - GROUND_OFFSET
 
         # facing and movement
         move_dir = 0
@@ -701,12 +781,12 @@ while True:
         run_max_speed = player_speed
         if move_dir != 0:
             facing = move_dir
-            player_vx += move_dir * run_accel
+            player_vx += move_dir * run_accel * dt
         else:
-            player_vx *= run_friction
+            player_vx *= run_friction ** dt
 
         player_vx = clamp(player_vx, -run_max_speed, run_max_speed)
-        player_pos_x += player_vx
+        player_pos_x += player_vx * dt
         player.x = int(player_pos_x)
 
         if player.x < 0:
@@ -720,11 +800,11 @@ while True:
 
         # variable jump: hold SPACE for a little extra lift
         if keys[pygame.K_SPACE] and jump_hold_time > 0 and velocity_y < 0:
-            velocity_y -= 0.75
-            jump_hold_time -= 1
+            velocity_y -= 0.75 * dt
+            jump_hold_time = update_timer(jump_hold_time, dt)
 
         if jump_buffer_time > 0:
-            jump_buffer_time -= 1
+            jump_buffer_time = update_timer(jump_buffer_time, dt)
             if on_ground or coyote_time > 0 or jumps_left > 0:
                 velocity_y = jump_strength
                 if on_ground or coyote_time > 0:
@@ -734,26 +814,26 @@ while True:
                 jump_hold_time = jump_hold_max
                 jump_buffer_time = 0
 
-        velocity_y += gravity
-        player_pos_y += velocity_y
+        velocity_y += gravity * dt
+        player_pos_y += velocity_y * dt
         player.y = int(player_pos_y)
 
-        if player.bottom >= HEIGHT - 50:
-            player.bottom = HEIGHT - 50
+        if player.bottom >= HEIGHT - GROUND_OFFSET:
+            player.bottom = HEIGHT - GROUND_OFFSET
             player_pos_y = float(player.y)
             velocity_y = 0
             jumps_left = max_jumps
             jump_hold_time = 0
             coyote_time = coyote_max
         else:
-            coyote_time = max(0, coyote_time - 1)
+            coyote_time = update_timer(coyote_time, dt)
 
         # dash with wall bounce
         if dash_duration > 0:
-            dash_velocity *= 0.95
-            player_pos_x += dash_velocity
+            dash_velocity *= 0.95 ** dt
+            player_pos_x += dash_velocity * dt
             player.x = int(player_pos_x)
-            dash_duration -= 1
+            dash_duration = update_timer(dash_duration, dt)
 
             hit_wall = False
             if player.left <= 0:
@@ -778,18 +858,18 @@ while True:
                 )
 
         if dash_cooldown > 0:
-            dash_cooldown -= 1
+            dash_cooldown = update_timer(dash_cooldown, dt)
 
         # shield
         if shield:
-            shield_time -= 1
+            shield_time = update_timer(shield_time, dt)
             shield_flash = 10
             if shield_time <= 0:
                 shield = False
         if shield_cooldown > 0:
-            shield_cooldown -= 1
+            shield_cooldown = update_timer(shield_cooldown, dt)
         if shield_flash > 0:
-            shield_flash -= 1
+            shield_flash = update_timer(shield_flash, dt)
 
         # spawn
         if tick >= next_magma_spawn:
@@ -801,16 +881,16 @@ while True:
             next_coin_spawn = tick + random.randint(850, 1350)
 
         # magma speed ramps with score
-        magma_speed = min(13, 6.2 + score * 0.06)
+        magma_speed = min(MAGMA_MAX_SPEED, MAGMA_BASE_SPEED + score * MAGMA_SCORE_SCALE)
 
         # magma
         magma_to_remove = []
         for m in magma_list:
-            m.y += magma_speed
+            m.y += int(round(magma_speed * dt))
             if m.colliderect(player):
                 if shield:
                     magma_to_remove.append(m)
-                    shield_flash = 14
+                    shield_flash = max(shield_flash, 14)
                 else:
                     coins += score
                     queue_save()
@@ -828,7 +908,7 @@ while True:
         collected_coins = 0
         next_coin_list = []
         for c in coin_list:
-            c.y += 5
+            c.y += int(round(COIN_FALL_SPEED * dt))
             if c.colliderect(player):
                 collected_coins += 1
             elif c.top > HEIGHT:
@@ -843,7 +923,7 @@ while True:
         # trail particles
         next_dash_trail = []
         for p in dash_trail:
-            p["life"] -= 1
+            p["life"] = update_timer(p["life"], dt)
             if p["life"] > 0:
                 next_dash_trail.append(p)
         dash_trail = next_dash_trail
@@ -873,6 +953,30 @@ while True:
 
         draw_hud()
 
+    elif game_state == "game":
+        for m in magma_list:
+            draw_magma(m)
+
+        for c in coin_list:
+            draw_coin(c, tick)
+
+        for p in dash_trail:
+            rect = p["rect"]
+            alpha = int(20 + p["life"] * 8)
+            glow = get_trail_surface((rect.width, rect.height), alpha)
+            screen.blit(glow, (rect.x - 15, rect.y - 15))
+
+        draw_player()
+
+        if shield:
+            pulse = 28 + int((math.sin(tick * 0.03) + 1) * 2)
+            draw_glow_circle(player.center, pulse, GREEN, 75)
+            pygame.draw.circle(screen, GREEN, player.center, pulse, 3)
+        elif shield_flash > 0:
+            draw_glow_circle(player.center, 28 + shield_flash, BLUE, 60)
+
+        draw_hud()
+
     elif game_state == "menu":
         draw_menu()
         draw_info_hub()
@@ -881,8 +985,15 @@ while True:
         draw_shop()
         draw_info_hub()
 
+    elif game_state == "pause":
+        draw_pause()
+        draw_info_hub()
+
     elif game_state == "gameover":
         draw_gameover()
         draw_info_hub()
+
+    if console_open:
+        draw_console()
 
     pygame.display.flip()

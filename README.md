@@ -10,7 +10,7 @@ Một game arcade nhỏ viết bằng `pygame-ce`: người chơi né magma rơi
 - Shield có thời gian hoạt động, cooldown, và hiệu ứng hình ảnh.
 - Magma và coin spawn theo pattern thay vì chỉ random đơn giản.
 - Có `shop`, `game over menu`, save/load coin và upgrade.
-- Window mode tự fallback về resolution an toàn nếu nhập sai như `0 0`.
+- Có `pause menu` bằng `ESC` khi đang chơi.
 
 ## Requirements
 
@@ -60,6 +60,8 @@ Khi start game:
 - `SPACE`: Jump / double jump / hold to jump higher
 - `Q`: Dash
 - `E`: Activate shield
+- `ESC`: Pause / resume
+- `` ` ``: Open cheat console
 
 ### Shop
 
@@ -67,6 +69,12 @@ Khi start game:
 - `2`: Jump upgrade
 - `3`: Shield upgrade
 - `ESC`: Back to menu
+
+### Pause
+
+- `ESC`: Resume
+- `M`: Back to menu
+- `Q`: Save and quit
 
 ### Game Over
 
@@ -89,12 +97,17 @@ Các dữ liệu đang được lưu:
 
 Game dùng cơ chế `queue + autosave` để tránh ghi file quá thường xuyên khi nhặt nhiều coin.
 
-## Debug Commands
+## Cheat Console
 
-Khi game đang chạy, terminal input thread vẫn nhận một số lệnh debug:
+Nhấn `` ` `` để mở console trong game.
 
-- `reset`: reset một phần progress
-- `exit`: thoát game
+Các lệnh hiện có:
+
+- `help`
+- `money`
+- `god`
+- `speed`
+- `reset`
 
 ## Project Structure
 

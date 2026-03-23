@@ -10,6 +10,7 @@ Một game arcade nhỏ viết bằng `pygame-ce`: người chơi né magma rơi
 - Shield có thời gian hoạt động, cooldown, và hiệu ứng hình ảnh.
 - Magma và coin spawn theo pattern thay vì chỉ random đơn giản.
 - Có `shop`, `game over menu`, save/load coin và upgrade.
+- Có startup screen trong `pygame` để chọn fullscreen, preset resolution, hoặc custom resolution.
 - Có `pause menu` bằng `ESC` khi đang chơi.
 
 ## Requirements
@@ -41,10 +42,10 @@ python "Dodge the Magma with Shield!.py"
 
 Khi start game:
 
-- Nhập `1` để chạy fullscreen.
-- Nhập `0` để chạy window mode.
-- Nếu chọn window mode, nhập resolution như `1280 720`.
-- Nếu nhập sai hoặc nhập `0 0`, game sẽ tự chuyển sang kích thước an toàn.
+- Chọn `WINDOW` hoặc `FULLSCREEN`.
+- Nếu ở `WINDOW`, có thể chọn preset hoặc `custom`.
+- Với `custom`, click vào ô width/height để nhập kích thước.
+- Nhấn `LAUNCH` hoặc `Enter` để bắt đầu.
 
 ## Controls
 

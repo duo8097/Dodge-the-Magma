@@ -5,7 +5,6 @@ import pygame
 import random
 import sys
 import json
-import threading
 import platform
 from functools import lru_cache
 
@@ -22,7 +21,7 @@ DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 MIN_WIDTH = 640
 MIN_HEIGHT = 480
-GROUND_OFFSET = 50
+GROUND_OFFSET = 90
 PLAYER_SIZE = 50
 MAGMA_SIZE = 30
 COIN_SIZE = 20
@@ -67,7 +66,6 @@ save_dirty = False
 last_save_tick = 0
 AUTO_SAVE_INTERVAL = 5000
 magma_glow_surface = None
-save_lock = threading.Lock()
 
 
 def save_game():
@@ -80,12 +78,11 @@ def save_game():
         "shield_time_real": shield_time_real,
     }
     temp_file = f"{SAVE_FILE}.tmp"
-    with save_lock:
-        with open(temp_file, "w") as f:
-            json.dump(data, f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temp_file, SAVE_FILE)
+    with open(temp_file, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_file, SAVE_FILE)
     save_dirty = False
     last_save_tick = pygame.time.get_ticks()
 
@@ -527,7 +524,7 @@ def draw_console():
 def draw_hud():
     panel_x = 10
     panel_y = 10
-    draw_box(panel_x, panel_y, 320, 178, (0, 0, 0), WHITE)
+    draw_box(panel_x, panel_y, 320, 108, (0, 0, 0), WHITE)
 
     score_surf = font.render(f"SCORE: {score}", True, WHITE)
     coin_surf = font.render(f"COINS: {coins}", True, YELLOW)
@@ -538,18 +535,71 @@ def draw_hud():
     screen.blit(speed_surf, (22, 90))
     screen.blit(jump_surf, (150, 90))
 
-    dash_ratio = 1 if dash_cooldown <= 0 else 1 - dash_cooldown / 60
-    shield_ratio = 1 if shield_cooldown <= 0 else 1 - shield_cooldown / shield_cooldown_real
-    draw_bar(20, 120, 280, 22, dash_ratio, BLUE, "DASH")
-    draw_bar(20, 148, 280, 22, shield_ratio, GREEN, "SHIELD")
 
-    if shield:
-        ready = small_font.render("ACTIVE", True, GREEN)
-    elif shield_cooldown <= 0:
-        ready = small_font.render("READY", True, WHITE)
-    else:
-        ready = small_font.render(str(shield_cooldown), True, WHITE)
-    screen.blit(ready, (250, 146))
+def draw_ability_bar():
+    icon_size = 34
+    bar_w = 110
+    bar_h = 12
+    slot_gap = 24
+    icon_bar_gap = 10
+    slot_w = icon_size + icon_bar_gap + bar_w
+
+    slots = [
+        {
+            "label": "DASH",
+            "key": "[Q]",
+            "ratio": 1.0 if dash_cooldown <= 0 else 1 - dash_cooldown / 60,
+            "color": BLUE,
+            "active": dash_cooldown <= 0,
+        },
+        {
+            "label": "SHIELD",
+            "key": "[E]",
+            "ratio": 1.0 if shield_cooldown <= 0 else 1 - shield_cooldown / shield_cooldown_real,
+            "color": GREEN,
+            "active": shield or shield_cooldown <= 0,
+        },
+    ]
+
+    total_w = slot_w * 2 + slot_gap
+    start_x = WIDTH // 2 - total_w // 2
+    center_y = HEIGHT - 55
+
+    for i, slot in enumerate(slots):
+        x = start_x + i * (slot_w + slot_gap)
+
+        # --- icon: can giua doc ---
+        icon_y = center_y - icon_size // 2
+        icon_border = slot["color"] if slot["active"] else (58, 58, 90)
+        icon_bg = (10, 22, 12) if slot["color"] == GREEN else (10, 16, 32)
+        icon_bg = icon_bg if slot["active"] else (17, 17, 34)
+        pygame.draw.rect(screen, icon_bg, (x, icon_y, icon_size, icon_size), border_radius=6)
+        pygame.draw.rect(screen, icon_border, (x, icon_y, icon_size, icon_size), 1, border_radius=6)
+
+        if slot["active"]:
+            pygame.draw.circle(screen, slot["color"], (x + icon_size - 6, icon_y + 6), 3)
+
+        # --- text + bar: ben phai icon ---
+        bar_x = x + icon_size + icon_bar_gap
+
+        label_h = small_font.get_height()
+        key_h = small_font.get_height()
+        content_h = label_h + 4 + bar_h + 4 + key_h
+        text_y = center_y - content_h // 2
+
+        label_surface = small_font.render(slot["label"], True, (180, 180, 210))
+        screen.blit(label_surface, (bar_x, text_y))
+
+        bar_y = text_y + label_h + 4
+        pygame.draw.rect(screen, (26, 26, 46), (bar_x, bar_y, bar_w, bar_h), border_radius=6)
+        pygame.draw.rect(screen, (58, 58, 90), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=6)
+
+        fill_w = max(0, int(bar_w * clamp(slot["ratio"], 0, 1)))
+        if fill_w > 0:
+            pygame.draw.rect(screen, slot["color"], (bar_x, bar_y, fill_w, bar_h), border_radius=6)
+
+        key_surface = small_font.render(slot["key"], True, (90, 90, 120))
+        screen.blit(key_surface, (bar_x, bar_y + bar_h + 4))
 
 
 def draw_info_hub():
@@ -952,30 +1002,7 @@ while True:
             draw_glow_circle(player.center, 28 + shield_flash, BLUE, 60)
 
         draw_hud()
-
-    elif game_state == "game":
-        for m in magma_list:
-            draw_magma(m)
-
-        for c in coin_list:
-            draw_coin(c, tick)
-
-        for p in dash_trail:
-            rect = p["rect"]
-            alpha = int(20 + p["life"] * 8)
-            glow = get_trail_surface((rect.width, rect.height), alpha)
-            screen.blit(glow, (rect.x - 15, rect.y - 15))
-
-        draw_player()
-
-        if shield:
-            pulse = 28 + int((math.sin(tick * 0.03) + 1) * 2)
-            draw_glow_circle(player.center, pulse, GREEN, 75)
-            pygame.draw.circle(screen, GREEN, player.center, pulse, 3)
-        elif shield_flash > 0:
-            draw_glow_circle(player.center, 28 + shield_flash, BLUE, 60)
-
-        draw_hud()
+        draw_ability_bar()
 
     elif game_state == "menu":
         draw_menu()

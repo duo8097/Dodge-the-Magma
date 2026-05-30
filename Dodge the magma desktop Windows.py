@@ -1021,9 +1021,9 @@ while True:
 
 		# facing and movement
 		move_dir = 0
-		if keys[pygame.K_a]:
+		if keys[pygame.K_a] or keys[pygame.k_LEFT]:
 			move_dir -= 1
-		if keys[pygame.K_d]:
+		if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
 			move_dir += 1
 
 		run_max_speed = player_speed

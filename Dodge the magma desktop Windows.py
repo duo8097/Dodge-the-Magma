@@ -622,7 +622,9 @@ def update_timer(value, amount):
 
 
 def console_exec(cmd):
-	global coins, player_speed, shield, shield_time
+	global coins, player_speed, jump_strength
+	global shield, shield_time
+	global shield_cooldown_real, shield_time_real
 	
 	# Tách lệnh và tham số
 	parts = cmd.strip().lower().split()
@@ -644,11 +646,21 @@ def console_exec(cmd):
 		queue_save()
 		return (f"speed -> {player_speed}", CONSOLE_OK)
 
+	if command == "jump":
+		amount = int(arg) if arg and arg.isdigit() else 2    # default +2
+		jump_strength -= amount
+		queue_save()
+		return (f"jump -> {jump_strength}", CONSOLE_OK)
+
 	if command == "god":
 		shield = True
 		shield_time = 999999
 		return ("god mode ON", CONSOLE_OK)
 	if command == "reset":
+		if arg == "jump":
+			jump_strength = -22
+			queue_save()
+			return ("jump reset", CONSOLE_OK)
 		if arg == "coin":
 			coins = 0
 			queue_save()
@@ -682,6 +694,9 @@ def console_exec(cmd):
 	if command == "save":
 		save_game()
 		return ("saved to save.json", CONSOLE_OK)
+	
+	if command == "stats":
+		return (f"coins: {coins}, speed: {player_speed}, jump: {jump_strength}, shield_cd: {shield_cooldown_real}, shield_time: {shield_time_real}", CONSOLE_INFO)
 
 	return (f"unknown: {command}", CONSOLE_ERR)
 

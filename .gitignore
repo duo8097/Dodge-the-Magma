@@ -11,3 +11,5 @@ wheels/
 
 save.json
 Dodge the magma desktop Windows.spec
+.vscode/
+cpp_version/build/

@@ -41,7 +41,7 @@ pip install -e .   # nếu dùng virtualenv thường
 
 ### Run
 ```bash
-python "Dodge the Magma with Shield!.py"
+python "dodge_the_magma_desktop_py.py"
 ```
 
 Chi tiết controls, save system, cheat console: xem README riêng trong

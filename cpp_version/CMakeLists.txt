@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # raylib: dùng bản đã cài trong hệ thống nếu có, không thì tự
 # tải về và build bằng FetchContent (cần internet lúc configure).
 # ------------------------------------------------------------
-find_package(raylib 4.5 QUIET)
+find_package(raylib REQUIRED)
 
 if (NOT raylib_FOUND)
     include(FetchContent)
@@ -16,7 +16,6 @@ if (NOT raylib_FOUND)
     FetchContent_Declare(
         raylib
         GIT_REPOSITORY https://github.com/raysan5/raylib.git
-        GIT_TAG        5.5
         GIT_SHALLOW    TRUE
     )
     # Không build ví dụ/game mẫu của raylib, chỉ build thư viện
@@ -26,9 +25,9 @@ if (NOT raylib_FOUND)
 endif()
 
 if (WIN32)
-    add_executable(dodge_magma WIN32 "Dodge the magma desktop Windows cpp.cpp")
+    add_executable(dodge_magma WIN32 "dodge_the_magma_desktop_cpp.cpp")
 else()
-    add_executable(dodge_magma "Dodge the magma desktop Windows cpp.cpp")
+    add_executable(dodge_magma "dodge_the_magma_desktop_cpp.cpp")
 endif()
 target_link_libraries(dodge_magma PRIVATE raylib)
 

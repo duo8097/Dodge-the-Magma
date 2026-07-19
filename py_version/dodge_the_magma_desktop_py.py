@@ -55,6 +55,14 @@ SHOP_ITEMS = [
 		"color": (255, 220, 70),
 		"desc": "Longer shield",
 	},
+	{
+		"key": pygame.K_4,
+		"label": "4",
+		"title": "MAGNET UPGRADE",
+		"cost": 150,
+		"color": (255, 100, 255),
+		"desc": "Pulls coins to you",
+	},
 ]
 
 coins = 0
@@ -62,10 +70,12 @@ player_speed = 8
 jump_strength = -22
 shield_cooldown_real = 300
 shield_time_real = 120
+magnet_level = 0
 save_dirty = False
 last_save_tick = 0
 AUTO_SAVE_INTERVAL = 5000
 magma_glow_surface = None
+ui_scale_str = "Auto"
 
 
 def save_game():
@@ -76,6 +86,9 @@ def save_game():
 		"jump_strength": jump_strength,
 		"shield_cooldown_real": shield_cooldown_real,
 		"shield_time_real": shield_time_real,
+		"magnet_level": magnet_level,
+		"target_fps": TARGET_FPS,
+		"ui_scale_str": ui_scale_str,
 	}
 	temp_file = f"{SAVE_FILE}.tmp"
 	with open(temp_file, "w") as f:
@@ -94,7 +107,8 @@ def queue_save():
 
 def load_game():
 	global coins, player_speed, jump_strength
-	global shield_cooldown_real, shield_time_real
+	global shield_cooldown_real, shield_time_real, magnet_level
+	global TARGET_FPS, FRAME_MS, ui_scale_str
 	try:
 		with open(SAVE_FILE, "r") as f:
 			data = json.load(f)
@@ -105,8 +119,42 @@ def load_game():
 				"shield_cooldown_real", shield_cooldown_real
 			)
 			shield_time_real = data.get("shield_time_real", shield_time_real)
+			magnet_level = data.get("magnet_level", magnet_level)
+			TARGET_FPS = data.get("target_fps", TARGET_FPS)
+			FRAME_MS = 1000 / TARGET_FPS
+			ui_scale_str = data.get("ui_scale_str", ui_scale_str)
 	except Exception:
 		save_game()
+
+
+def apply_display_settings(new_full, new_w, new_h, scale_str):
+	global fullscreen, window_w, window_h, WIDTH, HEIGHT, ui_scale_str, screen, display_screen
+	ui_scale_str = scale_str
+	fullscreen = new_full
+	window_w = new_w
+	window_h = new_h
+	
+	if fullscreen:
+		display_screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+		window_w, window_h = display_screen.get_size()
+	else:
+		display_screen = pygame.display.set_mode((window_w, window_h))
+		
+	scale_factor = 1.0
+	if scale_str == "Auto":
+		if window_w >= 3840: scale_factor = 2.0
+		elif window_w >= 2560: scale_factor = 1.5
+		elif window_w >= 1920: scale_factor = 1.25
+		else: scale_factor = 1.0
+	else:
+		try:
+			scale_factor = float(scale_str.replace('%', '')) / 100.0
+		except ValueError:
+			scale_factor = 1.0
+			
+	WIDTH = int(window_w / scale_factor)
+	HEIGHT = int(window_h / scale_factor)
+	screen = pygame.Surface((WIDTH, HEIGHT))
 
 
 def get_safe_window_resolution():
@@ -314,14 +362,14 @@ font = pygame.font.SysFont("Consolas", 28)
 small_font = pygame.font.SysFont("Consolas", 22)
 big_font = pygame.font.SysFont("Consolas", 48)
 
-if fullscreen:
-	screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-	WIDTH, HEIGHT = screen.get_size()
-else:
-	display_info = pygame.display.Info()
-	WIDTH = max(MIN_WIDTH, min(start_w, display_info.current_w - 120))
-	HEIGHT = max(MIN_HEIGHT, min(start_h, display_info.current_h - 120))
-	screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+load_game()
+
+display_info = pygame.display.Info()
+init_w = max(MIN_WIDTH, min(start_w, display_info.current_w - 120))
+init_h = max(MIN_HEIGHT, min(start_h, display_info.current_h - 120))
+display_screen = None
+apply_display_settings(fullscreen, init_w, init_h, ui_scale_str)
 
 pygame.display.set_caption("DODGE THE MAGMA")
 if IS_WINDOWS:
@@ -616,6 +664,16 @@ console_open = False
 console_input = ""
 console_log = []
 
+settings_presets = [(1280, 720), (1600, 900), (1920, 1080)]
+settings_selected_preset = -1
+settings_custom_w = str(window_w)
+settings_custom_h = str(window_h)
+settings_active_field = None
+settings_fullscreen = False
+settings_fps = TARGET_FPS
+settings_ui_scale_opts = ["Auto", "100%", "125%", "150%", "175%", "200%"]
+settings_scale_str = "Auto"
+
 
 def update_timer(value, amount):
 	return max(0.0, value - amount)
@@ -829,7 +887,7 @@ def draw_info_hub():
 
 
 def draw_menu():
-	draw_box(WIDTH // 2 - 260, 170, 520, 340, (0, 0, 0), WHITE)
+	draw_box(WIDTH // 2 - 260, 170, 520, 400, (0, 0, 0), WHITE)
 
 	y = 210
 	gap = 42
@@ -844,22 +902,122 @@ def draw_menu():
 	y += gap
 	draw_text("[ S ] SHOP", y, GREEN)
 	y += gap
+	draw_text("[ O ] SETTINGS", y, PURPLE)
+	y += gap
 	draw_text("[ Q ] EXIT", y, RED)
 	y += gap
 	draw_text(f"COINS: {coins}", y, YELLOW)
 
 
+def get_settings_rects():
+	px = WIDTH // 2 - 300
+	py = 150
+	
+	btn_window = pygame.Rect(px + 40, py + 60, 175, 32)
+	btn_full = pygame.Rect(px + 225, py + 60, 175, 32)
+	
+	preset_rects = []
+	for i in range(len(settings_presets)):
+		rect = pygame.Rect(px + 40 + i * 120, py + 124, 110, 28)
+		preset_rects.append(rect)
+	
+	custom_rect = pygame.Rect(px + 40, py + 160, 80, 28)
+	width_rect = pygame.Rect(px + 40, py + 196, 80, 28)
+	height_rect = pygame.Rect(px + 140, py + 196, 80, 28)
+	
+	fps_rects = []
+	for i in range(4):
+		rect = pygame.Rect(px + 40 + i * 90, py + 250, 80, 28)
+		fps_rects.append(rect)
+		
+	scale_rects = []
+	for i in range(6):
+		rect = pygame.Rect(px + 40 + i * 80, py + 310, 70, 28)
+		scale_rects.append(rect)
+		
+	apply_rect = pygame.Rect(px + 40, py + 360, 250, 40)
+	back_rect = pygame.Rect(px + 310, py + 360, 250, 40)
+	
+	return btn_window, btn_full, preset_rects, custom_rect, width_rect, height_rect, apply_rect, back_rect, fps_rects, scale_rects
+
+
+def draw_settings():
+	px = WIDTH // 2 - 300
+	py = 150
+	draw_box(px, py, 600, 430, (0, 0, 0), WHITE)
+	
+	draw_text("=== SETTINGS ===", py + 15, PURPLE, small_font)
+	
+	f_small = pygame.font.SysFont("Consolas", 14)
+	f_med = pygame.font.SysFont("Consolas", 18)
+	
+	def draw_btn(surf, rect, label, active, color=WHITE):
+		bg = (10, 16, 32) if active else (17, 17, 34)
+		border = color if active else (58, 58, 90)
+		text_color = color if active else (100, 100, 130)
+		pygame.draw.rect(surf, bg, rect, border_radius=6)
+		pygame.draw.rect(surf, border, rect, 1, border_radius=6)
+		text_surface = f_small.render(label, True, text_color)
+		surf.blit(text_surface, text_surface.get_rect(center=rect.center))
+
+	btn_window, btn_full, preset_rects, custom_rect, width_rect, height_rect, apply_rect, back_rect, fps_rects, scale_rects = get_settings_rects()
+	
+	screen.blit(f_small.render("DISPLAY MODE", True, (140, 140, 180)), (px + 40, py + 42))
+	draw_btn(screen, btn_window, "WINDOW", not settings_fullscreen, BLUE)
+	draw_btn(screen, btn_full, "FULLSCREEN", settings_fullscreen, BLUE)
+	
+	res_alpha = 80 if settings_fullscreen else 255
+	resolution_label = f_small.render("RESOLUTION", True, (140, 140, 180))
+	resolution_label.set_alpha(res_alpha)
+	screen.blit(resolution_label, (px + 40, py + 106))
+	
+	for i, (preset_w, preset_h) in enumerate(settings_presets):
+		if not settings_fullscreen:
+			draw_btn(screen, preset_rects[i], f"{preset_w}x{preset_h}", settings_selected_preset == i, GREEN)
+		else:
+			pygame.draw.rect(screen, (17, 17, 34), preset_rects[i], border_radius=6)
+			pygame.draw.rect(screen, (40, 40, 60), preset_rects[i], 1, border_radius=6)
+			
+	if not settings_fullscreen:
+		draw_btn(screen, custom_rect, "custom", settings_selected_preset == -1, GREEN)
+		
+	if settings_selected_preset == -1 and not settings_fullscreen:
+		for rect, value, field in (
+			(width_rect, settings_custom_w, "w"),
+			(height_rect, settings_custom_h, "h"),
+		):
+			border = BLUE if settings_active_field == field else (58, 58, 90)
+			pygame.draw.rect(screen, (11, 11, 22), rect, border_radius=6)
+			pygame.draw.rect(screen, border, rect, 1, border_radius=6)
+			value_surface = f_med.render(value, True, WHITE)
+			screen.blit(value_surface, value_surface.get_rect(center=rect.center))
+		screen.blit(f_small.render("x", True, (80, 80, 110)), (px + 128, py + 204))
+
+	screen.blit(f_small.render("TARGET FPS", True, (140, 140, 180)), (px + 40, py + 232))
+	fps_options = [30, 60, 120, 144]
+	for i, fps in enumerate(fps_options):
+		draw_btn(screen, fps_rects[i], f"{fps} FPS", settings_fps == fps, GREEN)
+		
+	screen.blit(f_small.render("UI SCALE", True, (140, 140, 180)), (px + 40, py + 292))
+	for i, scale_opt in enumerate(settings_ui_scale_opts):
+		draw_btn(screen, scale_rects[i], scale_opt, settings_scale_str == scale_opt, GREEN)
+
+	draw_btn(screen, apply_rect, "[ APPLY ]", True, WHITE)
+	draw_btn(screen, back_rect, "[ BACK ]", True, RED)
+
+
 def draw_shop():
-	draw_box(WIDTH // 2 - 330, 140, 660, 430, (0, 0, 0), WHITE)
+	draw_box(WIDTH // 2 - 330, 110, 660, 480, (0, 0, 0), WHITE)
 
-	mouse = pygame.mouse.get_pos()
-	item_rects = [
-		pygame.Rect(WIDTH // 2 - 250, 220, 500, 70),
-		pygame.Rect(WIDTH // 2 - 250, 305, 500, 70),
-		pygame.Rect(WIDTH // 2 - 250, 390, 500, 70),
-	]
+	real_mx, real_my = pygame.mouse.get_pos()
+	scale_x = WIDTH / window_w
+	scale_y = HEIGHT / window_h
+	mouse = (int(real_mx * scale_x), int(real_my * scale_y))
+	item_rects = []
+	for i in range(len(SHOP_ITEMS)):
+		item_rects.append(pygame.Rect(WIDTH // 2 - 250, 170 + i * 85, 500, 70))
 
-	draw_text("=== SHOP ===", 180, YELLOW)
+	draw_text("=== SHOP ===", 130, YELLOW)
 
 	for item, item_rect in zip(SHOP_ITEMS, item_rects):
 		hovered = item_rect.collidepoint(mouse)
@@ -878,8 +1036,8 @@ def draw_shop():
 		screen.blit(desc, (item_rect.x + 78, item_rect.y + 38))
 		screen.blit(cost, (item_rect.right - cost.get_width() - 18, item_rect.y + 23))
 
-	draw_text("[ ESC ] BACK", 490, WHITE)
-	draw_text(f"COINS: {coins}", 528, YELLOW)
+	draw_text("[ ESC ] BACK", 520, WHITE)
+	draw_text(f"COINS: {coins}", 550, YELLOW)
 
 
 def draw_pause():
@@ -939,6 +1097,74 @@ while True:
 			pygame.quit()
 			sys.exit()
 
+		if e.type == pygame.MOUSEBUTTONDOWN and game_state == "settings":
+			mouse_x, mouse_y = e.pos
+			scale_x = WIDTH / window_w
+			scale_y = HEIGHT / window_h
+			mouse_x = int(mouse_x * scale_x)
+			mouse_y = int(mouse_y * scale_y)
+			btn_window, btn_full, preset_rects, custom_rect, width_rect, height_rect, apply_rect, back_rect, fps_rects, scale_rects = get_settings_rects()
+			
+			if btn_window.collidepoint(mouse_x, mouse_y):
+				settings_fullscreen = False
+			if btn_full.collidepoint(mouse_x, mouse_y):
+				settings_fullscreen = True
+				settings_active_field = None
+			if not settings_fullscreen:
+				for i, rect in enumerate(preset_rects):
+					if rect.collidepoint(mouse_x, mouse_y):
+						settings_selected_preset = i
+						settings_active_field = None
+				if custom_rect.collidepoint(mouse_x, mouse_y):
+					settings_selected_preset = -1
+				if settings_selected_preset == -1:
+					if width_rect and width_rect.collidepoint(mouse_x, mouse_y):
+						settings_active_field = "w"
+					elif height_rect and height_rect.collidepoint(mouse_x, mouse_y):
+						settings_active_field = "h"
+					else:
+						settings_active_field = None
+						
+			fps_options = [30, 60, 120, 144]
+			for i, rect in enumerate(fps_rects):
+				if rect.collidepoint(mouse_x, mouse_y):
+					settings_fps = fps_options[i]
+					
+			for i, rect in enumerate(scale_rects):
+				if rect.collidepoint(mouse_x, mouse_y):
+					settings_scale_str = settings_ui_scale_opts[i]
+					
+			if apply_rect.collidepoint(mouse_x, mouse_y):
+				TARGET_FPS = settings_fps
+				FRAME_MS = 1000 / TARGET_FPS
+				
+				w, h = window_w, window_h
+				new_fullscreen = fullscreen
+				if settings_fullscreen:
+					w, h = 0, 0
+					new_fullscreen = True
+				else:
+					new_fullscreen = False
+					if settings_selected_preset >= 0:
+						w, h = settings_presets[settings_selected_preset]
+					else:
+						try:
+							w = int(settings_custom_w)
+							h = int(settings_custom_h)
+						except ValueError:
+							w, h = window_w, window_h
+				
+				if w != 0 and h != 0:
+					w = max(MIN_WIDTH, w)
+					h = max(MIN_HEIGHT, h)
+				
+				apply_display_settings(new_fullscreen, w, h, settings_scale_str)
+				queue_save()
+				game_state = "menu"
+				
+			if back_rect.collidepoint(mouse_x, mouse_y):
+				game_state = "menu"
+
 		if e.type == pygame.KEYDOWN:
 			if e.key == pygame.K_BACKQUOTE:
 				console_open = not console_open
@@ -966,9 +1192,40 @@ while True:
 					reset_run()
 				if e.key == pygame.K_s:
 					game_state = "shop"
+				if e.key == pygame.K_o:
+					game_state = "settings"
+					settings_fullscreen = fullscreen
+					settings_selected_preset = -1
+					for i, p in enumerate(settings_presets):
+						if p == (window_w, window_h):
+							settings_selected_preset = i
+					settings_custom_w = str(window_w)
+					settings_custom_h = str(window_h)
+					settings_active_field = None
+					settings_fps = TARGET_FPS
+					settings_scale_str = ui_scale_str
 				if e.key == pygame.K_q:
 					save_game()
 					sys.exit()
+
+			elif game_state == "settings":
+				if settings_active_field == "w":
+					if e.key == pygame.K_BACKSPACE:
+						settings_custom_w = settings_custom_w[:-1]
+					elif e.unicode.isdigit() and len(settings_custom_w) < 4:
+						settings_custom_w += e.unicode
+					elif e.key == pygame.K_TAB:
+						settings_active_field = "h"
+				elif settings_active_field == "h":
+					if e.key == pygame.K_BACKSPACE:
+						settings_custom_h = settings_custom_h[:-1]
+					elif e.unicode.isdigit() and len(settings_custom_h) < 4:
+						settings_custom_h += e.unicode
+					elif e.key == pygame.K_TAB:
+						settings_active_field = "w"
+				
+				if e.key == pygame.K_ESCAPE:
+					game_state = "menu"
 
 			elif game_state == "shop":
 				if e.key == pygame.K_1 and coins >= 20:
@@ -983,6 +1240,10 @@ while True:
 					shield_cooldown_real = max(120, shield_cooldown_real - 10)
 					shield_time_real += 10
 					coins -= 100
+					queue_save()
+				if e.key == pygame.K_4 and coins >= 150:
+					magnet_level += 1
+					coins -= 150
 					queue_save()
 				if e.key == pygame.K_ESCAPE:
 					game_state = "menu"
@@ -1036,7 +1297,7 @@ while True:
 
 		# facing and movement
 		move_dir = 0
-		if keys[pygame.K_a] or keys[pygame.k_LEFT]:
+		if keys[pygame.K_a] or keys[pygame.K_LEFT]:
 			move_dir -= 1
 		if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
 			move_dir += 1
@@ -1170,8 +1431,21 @@ while True:
 		# coin
 		collected_coins = 0
 		next_coin_list = []
+		magnet_radius = 150 + magnet_level * 50
+		magnet_speed = 10 + magnet_level * 3
 		for c in coin_list:
-			c.y += int(round(COIN_FALL_SPEED * dt))
+			if magnet_level > 0:
+				dx = player.centerx - c.centerx
+				dy = player.centery - c.centery
+				dist = math.hypot(dx, dy)
+				if dist < magnet_radius and dist > 0:
+					c.x += (dx / dist) * magnet_speed * dt
+					c.y += (dy / dist) * magnet_speed * dt
+				else:
+					c.y += int(round(COIN_FALL_SPEED * dt))
+			else:
+				c.y += int(round(COIN_FALL_SPEED * dt))
+
 			if c.colliderect(player):
 				collected_coins += 1
 			elif c.top > HEIGHT:
@@ -1221,6 +1495,10 @@ while True:
 		draw_menu()
 		draw_info_hub()
 
+	elif game_state == "settings":
+		draw_settings()
+		draw_info_hub()
+
 	elif game_state == "shop":
 		draw_shop()
 		draw_info_hub()
@@ -1236,4 +1514,9 @@ while True:
 	if console_open:
 		draw_console()
 
+	if WIDTH == window_w and HEIGHT == window_h:
+		display_screen.blit(screen, (0, 0))
+	else:
+		scaled_screen = pygame.transform.scale(screen, display_screen.get_size())
+		display_screen.blit(scaled_screen, (0, 0))
 	pygame.display.flip()

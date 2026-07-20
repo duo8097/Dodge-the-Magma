@@ -24,7 +24,7 @@ Repo này hiện có **2 bản**:
 - Có `pause menu` bằng `ESC` khi đang chơi.
 - Có cheat console (`` ` `` để mở).
 
-## Bản Python (`py version/`)
+## Bản Python (`py_version/`)
 Bản gốc, đầy đủ tính năng, chạy bằng `pygame-ce`.
 
 ### Requirements
@@ -33,7 +33,7 @@ Bản gốc, đầy đủ tính năng, chạy bằng `pygame-ce`.
 
 ### Install
 ```bash
-cd "py version"
+cd "py_version"
 uv sync            # nếu dùng uv
 # hoặc
 pip install -e .   # nếu dùng virtualenv thường
@@ -43,9 +43,6 @@ pip install -e .   # nếu dùng virtualenv thường
 ```bash
 python "dodge_the_magma_desktop_py.py"
 ```
-
-Chi tiết controls, save system, cheat console: xem README riêng trong
-[`py version/`](py%20version) (nếu có) hoặc phần dưới đây — controls giống hệt bản C++.
 
 ## Bản C++ (`cpp_version/`)
 Bản port sang C++ dùng `raylib`, đang phát triển song song, chưa port hết
@@ -76,6 +73,7 @@ File thực thi nằm ở `cpp_version/build/bin/dodge_magma` (`.exe` trên Wind
 ### Menu
 - `SPACE`: Start game
 - `S`: Open shop
+- `O`: Open settings
 - `Q`: Exit game
 
 ### In Game
@@ -130,8 +128,7 @@ Các lệnh hiện có:
 ```
 Dodge-the-Magma/
 ├── py version/       # bản gốc Python + pygame-ce
-├── cpp_version/      # bản port C++ + raylib (đang port dở)
-├── web ver py going to rm/   # bản thử nghiệm web, sẽ xoá
+├── cpp_version/      # bản port C++ + raylib (đang port dở)web, sẽ xoá
 └── .gitignore
 ```
 
